@@ -14,6 +14,46 @@ namespace CubeSolver
         {
         }
 
+        public class PruneTable
+        {
+            public Dictionary<int, byte> table = new Dictionary<int, byte>();
+            public int arraySize = 0, indexBase = 0, maxCount = 0;
+            public string name = "";
+
+            public PruneTable(string name)
+            {
+                this.name = name;
+                if (this.name == "CO")
+                {
+                    this.maxCount = 2187;   //3^8/3
+                    this.indexBase = 3;
+                    this.arraySize = 8;
+                }
+                else if (this.name == "CP")
+                {
+                    this.maxCount = 40320;  //8!
+                    this.indexBase = 8;
+                    this.arraySize = 8;
+                }
+                else if (this.name == "EO")
+                {
+                    this.maxCount = 2048;   //2^12/2
+                    this.indexBase = 2;
+                    this.arraySize = 12;
+                }
+                //else if (this.name == "EP")
+                //{
+                //    this.maxCount = 479001600;
+                //    this.indexBase = 12;
+                //}
+            }
+            public void AddIndex (int index, byte depth)
+            {
+                if (!table.ContainsKey(index))  //ensures first found depth is optimal
+                    table.Add(index, depth);
+            }
+        }
+
         private static Dictionary<byte, string> moveStructureByteString = new Dictionary<byte, string>()
         {
             {  0, "U" }, {  1, "U'" }, {  2, "U2" },
@@ -35,7 +75,17 @@ namespace CubeSolver
             { "B", 15 }, { "B'", 16 }, { "B2", 17 },
         };
 
-        private static Dictionary<UInt16, byte> pruneCO = new Dictionary<UInt16, byte>();
+        //public static PruneTable pruneCO = new PruneTable("CO");
+        //public static PruneTable pruneCP = new PruneTable("CP");
+        //public static PruneTable pruneEO = new PruneTable("EO");
+        //public static PruneTable pruneEP = new PruneTable("EP");
+        public static Dictionary<string, PruneTable> pruneDict = new Dictionary<string, PruneTable>();
+        //{
+        //    { "CO", pruneCO },
+        //    { "CP", pruneCP },
+        //    { "EO", pruneEO }
+        //    //{ "EP", pruneEP }
+        //};
 
         public static string TranslateMove(byte move)
         {
@@ -62,6 +112,79 @@ namespace CubeSolver
             for (int i = 0; i < moveArray.Length; i++)
                 parsedMoves[i] = Data.TranslateMove(moveArray[i]);
             return parsedMoves;
+        }
+
+        public static void CreatePruningTable(string pruneName)
+        {
+            //PruneTable prune = pruneDict[pruneName];
+            PruneTable prune = new PruneTable(pruneName);
+            pruneDict.Add(pruneName, prune);
+            Console.WriteLine("Creating pruning table: " + prune.name);
+            for (byte depth = 0; prune.table.Count() < prune.maxCount && depth <= 20; depth++)
+            {
+                Cube cube = new Cube();
+                if (DoAllTheMoves(cube, depth, 18, 19, prune, depth))
+                {
+                    break;
+                }
+            }
+        }
+
+        private static bool DoAllTheMoves(Cube cube, byte depth, byte prevMove, byte prevPrevMove, PruneTable prune, byte startDepth)
+        {
+            if (depth == 0)     //all moves done on all depths
+            {
+                if (prune.table.Count() < prune.maxCount)
+                {
+                    int index = CalculateIndex(cube, prune);
+                    prune.AddIndex(index, startDepth);      //adds if not already added
+                    return false;
+                }
+                else
+                    return true;    //done! all indices found
+            }
+            else
+            {
+                for (byte move = 0; move < 18; move++)   //go through all moves
+                {
+                    if (Algorithm.IsAllowedMove(move, prevMove, prevPrevMove))
+                    {
+                        Cube newCube = new Cube(cube).DoMove(move);
+                        if (DoAllTheMoves(newCube, (byte)(depth - 1), move, prevMove, prune, startDepth))
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public static int CalculateIndex(Cube cube, PruneTable prune)
+        {
+            int index = 0, product = 1;
+            byte[] type;
+            switch (prune.name)
+            {
+                case "CO":
+                    type = cube.CO;
+                    break;
+                case "CP":
+                    type = cube.CP;
+                    break;
+                case "EO":
+                    type = cube.EO;
+                    break;
+                //case "EP":
+                //    type = cube.EP;
+                //    break;
+                default:
+                    return -1;
+            }
+            for (int i = 0; i < prune.arraySize; i++)
+            {
+                index += (type[i] * product);   //type[i] * n^i
+                product *= prune.indexBase;
+            }
+            return index;
         }
 
         //this part was fun to figure out, but boring to write :D

@@ -8,11 +8,25 @@ namespace CubeSolver
 {
     class Algorithm
     {
+        //move to Solve()/IDA/etc?
         public static List<byte> theSolution = new List<byte>();
+
+        //these will all be (re)moved
         public static UInt64 nodesVisited = 0;
+        public static UInt64 movesAttempted = 0;
+        public static UInt64 numberOfPruneAll = 0;
+        public static UInt64 numberOfPruneAllFailed = 0;
+        public static UInt64 numberOfPruneCO = 0;
+        public static UInt64 numberOfPruneCOFailed = 0;
+        public static UInt64 numberOfPruneCP = 0;
+        public static UInt64 numberOfPruneCPFailed = 0;
+        public static UInt64 numberOfPruneEO = 0;
+        public static UInt64 numberOfPruneEOFailed = 0;
+        //
 
         public static byte[] Solve(Cube cube)
         {
+            theSolution.Clear();
             IDA(cube);
             return theSolution.ToArray();
         }
@@ -21,10 +35,9 @@ namespace CubeSolver
         //jaap's pseudo code for IDA and TreeSearch: http://www.jaapsch.net/puzzles/compcube.htm#prune
         private static bool IDA(Cube cube)
         {
-            Console.Write("* trying depth: ");
-            for (byte depth = 0; depth <= 20; depth++)  //>20 moves impossible
+            for (byte depth = 0; depth <= 20; depth++)  //>20 moves has been proven impossible
             {
-                Console.Write(depth + " ");
+                Console.WriteLine("* trying depth: " + depth);
                 if (TreeSearch(cube, depth, 18, 19))    //18, 19 are dummy moves (and are used)
                     return true;
             }
@@ -37,56 +50,104 @@ namespace CubeSolver
             nodesVisited++;
             if (depth == 0 && cube.IsSolved())
             {
-                Console.WriteLine("\nEUREKA!");
+                Console.WriteLine("EUREKA!");
                 return true;
             }
             else if (depth > 0)
             {
-                //if (prune(p) <= depth) {  //add pruning tables here
-                for (byte move = 0; move < 18; move++)   //go through all moves
+                if (PruneTablesLessThanOrEqualToDepth(cube, depth))
                 {
-                    if (IsAllowedMove(move, prevMove, prevPrevMove))
+                    for (byte move = 0; move < 18; move++)   //go through all moves
                     {
-                        Cube newCube = copyCube(cube).DoMove(move);
-                        if (TreeSearch(newCube, (byte)(depth - 1), move, prevMove))
+                        movesAttempted++;
+                        if (IsAllowedMove(move, prevMove, prevPrevMove))
                         {
-                            theSolution.Insert(0, move);   //insert from beginning, first move found = last move in solution
-                            return true;
+                            //Cube newCube = copyCube(cube).DoMove(move);   //constructor copies instead
+                            Cube newCube = new Cube(cube).DoMove(move);
+                            if (TreeSearch(newCube, (byte)(depth - 1), move, prevMove))
+                            {
+                                theSolution.Insert(0, move);   //insert from beginning, first move found = last move in solution
+                                return true;
+                            }
                         }
                     }
                 }
-                //} //prune
             }
             return false;
         }
 
-        //array lookup is slightly faster
-        private static byte[] moveLayer = { 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 18, 19 }; //18, 19: dummies for dummy moves 18, 19
-        private static byte[] moveAxis =  { 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 18, 19 };
+        private static bool PruneTablesLessThanOrEqualToDepth(Cube cube, byte depth)
+        {
+            foreach (var prune in Data.pruneDict)
+            {
+                if (GetPruneDepth(cube, prune.Value) > depth)   //if any prune > depth, successful prune
+                {
+                    numberOfPruneAll++;
+                    return false;
+                }
+            }
+            //todo: test these individually
+            //if (GetPruneDepth(cube, Data.pruneDict["CO"]) > depth)
+            //{
+            //    numberOfPruneCO++;
+            //    return false;
+            //}
+            //numberOfPruneCOFailed++;
+            //if (GetPruneDepth(cube, Data.pruneDict["CP"]) > depth)
+            //{
+            //    numberOfPruneCP++;
+            //    return false;
+            //}
+            //numberOfPruneCPFailed++;
+            //if (GetPruneDepth(cube, Data.pruneDict["EO"]) > depth)
+            //{
+            //    numberOfPruneEO++;
+            //    return false;
+            //}
+            //numberOfPruneEOFailed++;
+            
+            numberOfPruneAllFailed++;
+            return true;    //could not prune anything
+        }
+
+        private static byte GetPruneDepth(Cube cube, Data.PruneTable prune)
+        {
+            int index = Data.CalculateIndex(cube, prune);
+            return prune.table[index];
+        }
+
+        //is array lookup faster? no noticable difference experienced
+        //private static byte[] moveLayer = { 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 18, 19 }; //18, 19: dummies for dummy moves 18, 19
+        //private static byte[] moveAxis =  { 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 18, 19 };
+        //public static bool IsAllowedMove(byte move, byte prevMove, byte prevPrevMove)
+        //{
+        //    //i think this order is most efficient
+        //    if (moveLayer[move] == moveLayer[prevMove])
+        //        return false;
+        //    if (moveAxis[move] == moveAxis[prevMove] && moveAxis[move] == moveAxis[prevPrevMove])
+        //        return false;
+        //    return true;
+        //}
+
+        //division by 3 and 6, not noticably slower solutions than with array lookup
         public static bool IsAllowedMove(byte move, byte prevMove, byte prevPrevMove)
         {
-            if (moveAxis[move] == moveAxis[prevMove] && moveAxis[move] == moveAxis[prevPrevMove]) return false;
-            if (moveLayer[move] == moveLayer[prevMove]) return false;
+            if (IsSameLayer(move, prevMove)) return false;
+            if (IsSameAxis(move, prevMove) && IsSameAxis(move, prevPrevMove)) return false;
             return true;
         }
 
-        //division by 3 and 6 is slightly slower
-        //public static bool IsAllowedMove(byte move, byte prevMove, byte prevPrevMove)
-        //{
-        //    if (IsSameAxis(move, prevMove) && IsSameAxis(move, prevPrevMove)) return false;
-        //    if (IsSameLayer(move, prevMove)) return false;
-        //    return true;
-        //}
-        //private static bool IsSameLayer(byte move, byte tryMove)
-        //{
-        //    if ((byte)(move / 3) == (byte)(tryMove / 3)) return true;    //i made it so turns in move structure is in groups of three, floor(move/3) = layer
-        //    return false;
-        //}
-        //private static bool IsSameAxis(byte move, byte tryMove)
-        //{
-        //    if ((byte)(move / 6) == (byte)(tryMove / 6)) return true;   //layers in move structure are in pairs (groups of 6), floor(move/6) = axis
-        //    return false;
-        //}
+        private static bool IsSameLayer(byte move, byte tryMove)
+        {
+            if ((byte)(move / 3) == (byte)(tryMove / 3)) return true;    //i made it so turns in move structure are in groups of three, floor(move/3) = layer
+            return false;
+        }
+
+        private static bool IsSameAxis(byte move, byte tryMove)
+        {
+            if ((byte)(move / 6) == (byte)(tryMove / 6)) return true;   //layers in move structure are in pairs (so moves are in groups of 6), floor(move/6) = axis
+            return false;
+        }
 
         public static void ApplyCOMask(byte[] state, byte[] mask)
         {
@@ -125,26 +186,6 @@ namespace CubeSolver
             for (int i = 0; i < state.Length; i++)
                 if (state[i] != i) return false;
             return true;
-        }
-
-        private static Cube copyCube(Cube cube)
-        {
-            Cube newCube = new Cube();
-            //slightly faster
-            for (int i = 0; i < cube.CO.Length; i++)
-                newCube.CO[i] = cube.CO[i];
-            for (int i = 0; i < cube.CP.Length; i++)
-                newCube.CP[i] = cube.CP[i];
-            for (int i = 0; i < cube.EO.Length; i++)
-                newCube.EO[i] = cube.EO[i];
-            for (int i = 0; i < cube.EP.Length; i++)
-                newCube.EP[i] = cube.EP[i];
-            //slower
-            //Array.Copy(cube.CO, newCube.CO, cube.CO.Length);
-            //Array.Copy(cube.CP, newCube.CP, cube.CP.Length);
-            //Array.Copy(cube.EO, newCube.EO, cube.EO.Length);
-            //Array.Copy(cube.EP, newCube.EP, cube.EP.Length);
-            return newCube;
         }
     }
 }
