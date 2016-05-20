@@ -1,15 +1,16 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace CubeSolver
 {
     class Data
     {
-
         public Data()
         {
         }
@@ -17,12 +18,12 @@ namespace CubeSolver
         public class PruneTable
         {
             public Dictionary<int, byte> table = new Dictionary<int, byte>();
-            public int arraySize = 0, indexBase = 0, maxCount = 0;
-            public string name = "";
+            public int arraySize, indexBase, maxCount;
+            public string name = string.Empty;
 
-            public PruneTable(string name)
+            public PruneTable(string tableName)
             {
-                this.name = name;
+                this.name = tableName;
                 if (this.name == "CO")
                 {
                     this.maxCount = 2187;   //3^8/3
@@ -43,18 +44,20 @@ namespace CubeSolver
                 }
                 //else if (this.name == "EP")
                 //{
-                //    this.maxCount = 479001600;
+                //    this.maxCount = 479001600;    //12!
                 //    this.indexBase = 12;
                 //}
             }
             public void AddIndex (int index, byte depth)
             {
                 if (!table.ContainsKey(index))  //ensures first found depth is optimal
+                {
                     table.Add(index, depth);
+                }
             }
         }
 
-        private static Dictionary<byte, string> moveStructureByteString = new Dictionary<byte, string>()
+        private static Dictionary<byte, string> moveDefByteString = new Dictionary<byte, string>()
         {
             {  0, "U" }, {  1, "U'" }, {  2, "U2" },
             {  3, "D" }, {  4, "D'" }, {  5, "D2" },
@@ -64,8 +67,8 @@ namespace CubeSolver
             { 15, "B" }, { 16, "B'" }, { 17, "B2" },
         };
 
-        //for (byte i = 0; i < 18; i++) moveStructureStringByte.Add(moveStructureByteString[i], i); //?
-        private static Dictionary<string, byte> moveStructureStringByte = new Dictionary<string, byte>()
+        //for (byte i = 0; i < 18; i++) moveStructureStringByte.Add(moveStructureByteString[i], i); //
+        private static Dictionary<string, byte> moveDefStringByte = new Dictionary<string, byte>()
         {
             { "U",  0 }, { "U'",  1 }, { "U2",  2 },
             { "D",  3 }, { "D'",  4 }, { "D2",  5 },
@@ -75,29 +78,19 @@ namespace CubeSolver
             { "B", 15 }, { "B'", 16 }, { "B2", 17 },
         };
 
-        //public static PruneTable pruneCO = new PruneTable("CO");
-        //public static PruneTable pruneCP = new PruneTable("CP");
-        //public static PruneTable pruneEO = new PruneTable("EO");
-        //public static PruneTable pruneEP = new PruneTable("EP");
         public static Dictionary<string, PruneTable> pruneDict = new Dictionary<string, PruneTable>();
-        //{
-        //    { "CO", pruneCO },
-        //    { "CP", pruneCP },
-        //    { "EO", pruneEO }
-        //    //{ "EP", pruneEP }
-        //};
 
         public static string TranslateMove(byte move)
         {
-            return moveStructureByteString[move];
+            return moveDefByteString[move];
         }
 
         public static byte TranslateMove(string move)
         {
-            return moveStructureStringByte[move];
+            return moveDefStringByte[move];
         }
 
-        public static string[] TranslateMove(byte[] moves)
+        public static string[] TranslateMoves(byte[] moves)
         {
             string[] temp = new string[moves.Length];
             for (byte i = 0; i < moves.Length; i++)
@@ -105,7 +98,7 @@ namespace CubeSolver
             return temp;
         }
 
-        public static byte[] ParseMove(string moves)
+        public static byte[] ParseMoveFromString(string moves)
         {
             string[] moveArray = moves.Split(' ');
             byte[] parsedMoves = new byte[moveArray.Length];
@@ -116,7 +109,6 @@ namespace CubeSolver
 
         public static void CreatePruningTable(string pruneName)
         {
-            //PruneTable prune = pruneDict[pruneName];
             PruneTable prune = new PruneTable(pruneName);
             pruneDict.Add(pruneName, prune);
             Console.WriteLine("Creating pruning table: " + prune.name);
@@ -124,9 +116,7 @@ namespace CubeSolver
             {
                 Cube cube = new Cube();
                 if (DoAllTheMoves(cube, depth, 18, 19, prune, depth))
-                {
                     break;
-                }
             }
         }
 
@@ -149,7 +139,8 @@ namespace CubeSolver
                 {
                     if (Algorithm.IsAllowedMove(move, prevMove, prevPrevMove))
                     {
-                        Cube newCube = new Cube(cube).DoMove(move);
+                        Cube newCube = new Cube(cube);
+                        Algorithm.DoMove(newCube, move);
                         if (DoAllTheMoves(newCube, (byte)(depth - 1), move, prevMove, prune, startDepth))
                             return true;
                     }
@@ -187,13 +178,25 @@ namespace CubeSolver
             return index;
         }
 
+        public static void SavePruningTable(Dictionary<int, byte> dict, string filename)
+        {
+            //to text file first, so it's humanly readable, then to binary file
+            throw new NotImplementedException("Hello world!");
+        }
+
+        public static void ReadPruningTable(Dictionary<int, byte> dict, string filename)
+        {
+            throw new NotImplementedException("Hello world!");
+        }
+
         //this part was fun to figure out, but boring to write :D
+        //todo: more boring stuff, switch (move) and define all swaps (maybe faster)
         public static byte[][][] moveMask = new byte[][][] {
             new byte [][] {     //[0] U
-                new byte[] { },            //[0] CO
-                new byte[] { 3, 0, 1, 2 }, //[1] CP
-                new byte[] { },            //[2] EO
-                new byte[] { 3, 0, 1, 2 }  //[3] EP
+                new byte[] { },             //[0] CO
+                new byte[] { 3, 0, 1, 2 },  //[1] CP
+                new byte[] { },             //[2] EO
+                new byte[] { 3, 0, 1, 2 }   //[3] EP
             },
             new byte [][] {     //[1] U'
                 new byte[] { },
@@ -226,7 +229,7 @@ namespace CubeSolver
                 new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 8, 9 }
             },
             new byte [][] {     //[6] R
-                new byte[] { 1, 0, 0, 2, 2, 0, 0, 1 },
+                new byte[] { 1, 0, 0, 2, 2, 0, 0, 1 },  //todo: 1 <-> 2 to reflect CP after doing CO differently
                 new byte[] { 4, 1, 2, 0, 7, 5, 6, 3 },
                 new byte[] { },
                 new byte[] { 0, 1, 2, 7, 4, 5, 3, 11, 8, 9, 10, 6 }
@@ -299,5 +302,4 @@ namespace CubeSolver
             }
         };
     }
-
 }
