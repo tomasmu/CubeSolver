@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
@@ -34,6 +35,16 @@ namespace CubeSolver
                     this.maxCount = 40320;  //8!
                     this.indexBase = 8;     //index <= 8^8-1 = 16777215
                 }
+                else if (this.name == "CP2")
+                {
+                    this.maxCount = 40320;  //same as above, but limited to G1
+                    this.indexBase = 8;
+                }
+                else if (this.name == "CP2E")
+                {
+                    this.maxCount = 40320;  //same as above, but with E solved
+                    this.indexBase = 8;
+                }
                 else if (this.name == "EO")
                 {
                     this.maxCount = 2048;   //2^12/2
@@ -44,10 +55,23 @@ namespace CubeSolver
                 //    this.maxCount = 479001600;    //12!
                 //    this.indexBase = 12;  //index <= 12^12-1 = 8916100448255 -> 43 bits :(
                 //}
-                //else if (this.name == "COEO")
+                else if (this.name == "COEO")
+                {
+                    this.maxCount = 2187 * 2048;    //4478976
+                    this.indexBase = 3;   //index <= 3^(8+12)-1 = 3486784401 -> 32 bits \o/
+                }
+                //else if (this.name == "COCP")
                 //{
-                //    this.maxCount = 2187 * 2048;    //4478976
-                //    this.indexBase = 3;   //index <= 3^(8+12)-1 = 3486784401 -> 32 bits \o/
+                //    this.maxCount = 2187 * 40320;   //88179840
+                //}
+                //else if (this.name == "EPUD") //todo
+                //{
+                //    this.maxCount = 40320;  //8!
+                //    this.indexBase = 8;
+                //}
+                //else if (this.name == "FlipUDSlice")  //hmm
+                //{
+                //    this.maxCount = 2048 * 495; //1013760 = = 2^11 * C(12, 4), dvs EO + lösa E-slice EP
                 //}
             }
             int oldValue = -1;
@@ -55,12 +79,20 @@ namespace CubeSolver
             {
                 if (!table.ContainsKey(index))  //ensures first found depth is optimal
                 {
-                    table.Add(index, depth);
-                    //if (depth > oldValue && name == "COEO")
+                    //if (name == "CP2")
                     //{
-                    //    Console.WriteLine($"added: {index}\t{depth}\tcount: {table.Count()}");
-                    //    oldValue = depth;
+                    //    Console.WriteLine($"{name} adding: {index}     \t{depth}\tcount: {table.Count()}");
+                    //    using (StreamWriter sw = new StreamWriter($"prune{name}.txt", true))
+                    //    {
+                    //        sw.WriteLine($"{index}\t{depth}");
+                    //    }
                     //}
+                    table.Add(index, depth);
+                }
+                if (depth > oldValue)
+                {
+                    oldValue = depth;
+                    Console.WriteLine($"new depth: {depth}");
                 }
             }
         }
@@ -115,16 +147,47 @@ namespace CubeSolver
             return parsedMoves;
         }
 
-        public static void CreatePruningTable(string pruneName)
+        public static void CreatePruningTables(string[] names)
         {
-            PruneTable prune = new PruneTable(pruneName);
-            pruneDict.Add(pruneName, prune);
-            Console.WriteLine("Creating pruning table: " + prune.name);
-            for (byte depth = 0; prune.table.Count() < prune.maxCount && depth <= 20; depth++)
+            foreach (var name in names)
+            {
+                PruneTable prune = new PruneTable(name);
+                pruneDict.Add(name, prune);
+                if (!File.Exists($"prune{name}.txt"))   //doesn't exist
+                {
+                    Console.WriteLine($"Creating pruning table: {name}");
+                    if (name == "CP2")
+                        CreatePruningTableG1(prune);
+                    else
+                        CreatePruningTable(prune);
+                    SavePruningTable(prune);
+                    Console.WriteLine($"Saved {prune.table.Count()} pruning table entries to prune{prune.name}.txt");
+                }
+                else
+                {
+                    ReadPruningTable(prune);
+                    Console.WriteLine($"Read {prune.table.Count()} pruning table entries from prune{prune.name}.txt");
+                }
+            }
+        }
+
+        private static void CreatePruningTable(PruneTable prune)
+        {
+            for (byte depth = 0; depth <= 20; depth++)
             {
                 Cube cube = new Cube();
                 if (DoAllTheMoves(cube, depth, 18, 19, prune, depth))
-                    break;
+                    break;  //all indices found
+            }
+        }
+
+        public static void CreatePruningTableG1(PruneTable prune)    //phase2
+        {
+            for (byte depth = 0; depth <= 20; depth++)
+            {
+                Cube cube = new Cube();
+                if (DoAllTheMovesG1(cube, depth, 18, 19, prune, depth))
+                    break;  //all indices found
             }
         }
 
@@ -155,6 +218,37 @@ namespace CubeSolver
             }
             return false;
         }
+        
+        private static bool DoAllTheMovesG1(Cube cube, byte depth, byte prevMove, byte prevPrevMove, PruneTable prune, byte startDepth)
+        {
+            if (depth == 0)     //all moves done on all depths
+            {
+                    //if (Algorithm.IsSolvedPermutationESlice(cube.EP))   //E-slice must be solved, takes too long
+                int index = CalculateIndex(cube, prune);
+                prune.AddIndex(index, startDepth);      //adds if not already added
+                if (prune.table.Count() < prune.maxCount)
+                    return false;
+                else
+                    return true;    //done! all indices found
+            }
+            else
+            {
+                for (byte move = 0; move < 10; move++)   //go through all G1 moves
+                {
+                    //if (Algorithm.IsAllowedMove(move, prevMove, prevPrevMove))
+                    if (Algorithm.IsAllowedMove(Algorithm.moveSetG1Test[move], Algorithm.moveSetG1Test[prevMove], Algorithm.moveSetG1Test[prevPrevMove]))
+                    {
+                        //Cube newCube = new Cube(cube, move);
+                        Cube newCube = new Cube(cube, Algorithm.moveSetG1Test[move]);
+                        if (DoAllTheMovesG1(newCube, (byte)(depth - 1), move, prevMove, prune, startDepth))
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+
 
         public static int CalculateIndex(Cube cube, PruneTable prune)
         {
@@ -166,17 +260,55 @@ namespace CubeSolver
                     type = cube.CO;
                     break;
                 case "CP":
+                case "CP2":
+                case "CP2E":
                     type = cube.CP;
                     break;
                 case "EO":
                     type = cube.EO;
                     break;
-                //case "COEO":
-                //    //System.Array.Copy
-                //    //System.Buffer.BlockCopy
-                //    type = new byte[20];
-                //    System.Array.Copy(cube.CO, 0, type, 0, 8);
-                //    System.Array.Copy(cube.EO, 0, type, 8, 12);
+                case "COEO":
+                    //System.Array.Copy
+                    //System.Buffer.BlockCopy
+                    //small number of assignments usually fastest
+                    type = new byte[20];
+                    type[ 0] = cube.CO[0];
+                    type[ 1] = cube.CO[1];
+                    type[ 2] = cube.CO[2];
+                    type[ 3] = cube.CO[3];
+                    type[ 4] = cube.CO[4];
+                    type[ 5] = cube.CO[5];
+                    type[ 6] = cube.CO[6];
+                    type[ 7] = cube.CO[7];
+                    type[ 8] = cube.EO[ 0];
+                    type[ 9] = cube.EO[ 1];
+                    type[10] = cube.EO[ 2];
+                    type[11] = cube.EO[ 3];
+                    type[12] = cube.EO[ 4];
+                    type[13] = cube.EO[ 5];
+                    type[14] = cube.EO[ 6];
+                    type[15] = cube.EO[ 7];
+                    type[16] = cube.EO[ 8];
+                    type[17] = cube.EO[ 9];
+                    type[18] = cube.EO[10];
+                    type[19] = cube.EO[11];
+                    break;
+                //case "EPUD":
+                //    if (Algorithm.IsSolvedPermutationESlice(cube.EP))
+                //    {
+                //        type = new byte[8];
+                //        type[0] = cube.EP[ 0];
+                //        type[1] = cube.EP[ 1];
+                //        type[2] = cube.EP[ 2];
+                //        type[3] = cube.EP[ 3];
+                //        //skipping E (4, 5, 6, 7)
+                //        type[4] = cube.EP[ 8];
+                //        type[5] = cube.EP[ 9];
+                //        type[6] = cube.EP[10];
+                //        type[7] = cube.EP[11];
+                //    }
+                //    else
+                //        return -1;
                 //    break;
                 //case "EP":
                 //    type = cube.EP;
@@ -184,30 +316,50 @@ namespace CubeSolver
                 default:
                     return -1;
             }
-            for (int i = 0; i < type.Length - 1; i++)   //last piece is determined by the others, no need to index those
+            for (int i = 0; i < type.Length - 1; i++)   //last piece is determined by the others, no need to index it
             {
                 //index += (type[i] * product);   //type[i] * n^i
                 //product *= prune.indexBase;
-                index *= prune.indexBase;   //better way of calculating a number in base N, only 1 add and 1 mul per step
+                index *= prune.indexBase;   //better way of calculating a number in base N, only 1 add and 1 mul per loop
                 index += type[i];
             }
             return index;
         }
 
-        public static void SavePruningTable(Dictionary<int, byte> dict, string filename)
+        public static void SavePruningTable(PruneTable prune)
         {
-            //to text file first, so it's humanly readable, then to binary file
-            throw new NotImplementedException("Hello world!");
+            //to text file first, so it's humanly readable, then try binary file
+            using (StreamWriter sw = new StreamWriter($"prune{prune.name}.txt"))
+            {
+                foreach (var item in prune.table)
+                {
+                    sw.WriteLine($"{item.Key}\t{item.Value}");
+                }
+            }
         }
 
-        public static void ReadPruningTable(Dictionary<int, byte> dict, string filename)
+        public static void ReadPruningTable(PruneTable prune)
         {
-            throw new NotImplementedException("Hello world!");
+            string[] temp;
+            using (StreamReader sr = new StreamReader($"prune{prune.name}.txt"))
+            {
+                while (!sr.EndOfStream)
+                {
+                    temp = sr.ReadLine().Split('\t');
+                    int index = Int32.Parse(temp[0]);
+                    byte depth = Byte.Parse(temp[1]);
+                    prune.AddIndex(index, depth);
+                }
+            }
+            if (prune.table.Count() < prune.maxCount)
+            {
+                Console.WriteLine($"prune{prune.name}.txt is incomplete");
+                //Console.WriteLine($"* continuing with: {prune.name}");
+            }
         }
 
         //fun to figure out, boring to write :D
         //todo: more boring stuff, switch (move) and define all swaps (may be faster)
-        //CO todo: 1 <-> 2 when doing CO differently
         //public static class MoveMask
         //{
             public static byte[][] COMask = new byte[][] {
